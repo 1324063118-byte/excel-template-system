@@ -45,8 +45,7 @@ MAPPING_FOLDER = "template_mappings"
 def read_excel(file, sheet_name=0):
     """
     读取Excel文件
-    - sheet_name=0：读取第一个工作表（默认，用于A表、C表）
-    - sheet_name="Sheet1"：明确读取名为Sheet1的工作表（用于B模板）
+    - sheet_name=0（默认）：读取第一个工作表，适用于A表、C表和B模板
     """
     try:
         df = pd.read_excel(
@@ -179,13 +178,18 @@ def convert_to_native(val):
             return val
     return val
 
-def generate_result_from_template(template_path, result_df, output_sheet_name="Sheet1"):
+def generate_result_from_template(template_path, result_df, output_sheet_name=None):
     """
     基于B模板文件生成结果Excel：
     - 复制整个模板文件（保留所有附表、格式、公式、图片等）
-    - 只替换指定 sheet（默认 Sheet1）的数据行
+    - 只替换第一个工作表的数据行（Sheet1或第一个sheet）
     - 返回 BytesIO 对象
     """
+    if output_sheet_name is None:
+        # 默认使用模板的第一个sheet
+        wb_temp = openpyxl.load_workbook(template_path)
+        output_sheet_name = wb_temp.sheetnames[0]
+        wb_temp.close()
     buf = io.BytesIO()
     # 把模板文件完整复制到内存
     with open(template_path, "rb") as f:
@@ -240,21 +244,21 @@ st.title("📊 一键智能vlookup")
 # 侧边栏（A表类型切换 + 数据上传）
 # ===========================
 with st.sidebar:
-    st.header("选择A表类型")
+    st.header("选择表类型")
     # a_type_val 统一用 "旧A" / "新A"，避免与 radio option 字符串混淆
     if st.session_state.get("a_type_val") is None:
         st.session_state.a_type_val = "旧A"
     idx = 0 if st.session_state.a_type_val == "旧A" else 1
     a_type_display = st.radio(
-        "A表类型",
-        ["旧A表", "新A表"],
+        "表类型",
+        ["上传表", "要素表"],
         index=idx,
         key="a_type_radio",
         horizontal=True,
         help="切换后上传区和模板列表会自动切换"
     )
     # 同步到 a_type_val
-    a_type_val = "旧A" if a_type_display == "旧A表" else "新A"
+    a_type_val = "旧A" if a_type_display == "上传表" else "新A"
     if st.session_state.a_type_val != a_type_val:
         st.session_state.a_type_val = a_type_val
         # 切换A表类型时清空状态
@@ -305,7 +309,7 @@ if up_a and up_c:
         # 对第一个模板展示映射配置界面（批量时所有模板各自用已保存的映射）
         first_template = selected_templates[0]
         template_path_preview = os.path.join(TEMPLATE_FOLDER, first_template)
-        df_b_preview = read_excel(template_path_preview, sheet_name="Sheet1")
+        df_b_preview = read_excel(template_path_preview)
 
         start_gen = False
         current_map = {}
@@ -348,7 +352,7 @@ if up_a and up_c:
                 bar.progress(progress)
 
                 t_path = os.path.join(TEMPLATE_FOLDER, b_file)
-                df_b = read_excel(t_path, sheet_name="Sheet1")
+                df_b = read_excel(t_path)
 
                 if df_b is None:
                     continue
