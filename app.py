@@ -41,7 +41,6 @@ MAPPING_FOLDER = "template_mappings"
 # ===========================
 # 文本读取（防ID尾数变0 + 超强容错）
 # ===========================
-@st.cache_data(ttl=3600)
 def read_excel(file, sheet_name=0):
     """
     读取Excel文件
