@@ -69,10 +69,20 @@ def read_excel(file, sheet_name=0):
 # ===========================
 # 🔥 从 GitHub 仓库读取模板（永久存储）
 # ===========================
-def get_b_templates():
+def get_b_templates(a_type):
     if not os.path.exists(TEMPLATE_FOLDER):
         return []
-    return [f for f in os.listdir(TEMPLATE_FOLDER) if f.endswith((".xlsx", ".xls"))]
+    all_files = [f for f in os.listdir(TEMPLATE_FOLDER) if f.endswith((".xlsx", ".xls"))]
+    if a_type == "旧A":
+        # 旧A：返回所有模板（旧的没有_a_type标记，混在一起）
+        return all_files
+    # 新A：只返回 _a_type == "新A" 的模板
+    result = []
+    for f in all_files:
+        mp = load_mapping(f, None, None, skip_a_check=True)
+        if mp.get("_a_type") == "新A":
+            result.append(f)
+    return result
 
 # ===========================
 # 自动映射 + 缺失列检测 + 永久映射管理
@@ -89,18 +99,28 @@ def auto_map_columns(df_b, df_a):
 def check_missing_columns(df_b, df_a):
     return [col for col in df_b.columns if col not in df_a.columns]
 
-def load_mapping(template_name, df_b, df_a):
+def load_mapping(template_name, df_b, df_a, skip_a_check=False):
+    """skip_a_check=True 时返回完整mapping（含_a_type），不验证A表列"""
     map_file = os.path.join(MAPPING_FOLDER, f"{template_name}.json")
     if os.path.exists(map_file):
         with open(map_file, "r", encoding="utf-8") as f:
-            return json.load(f)
+            mapping = json.load(f)
+        if "_a_type" not in mapping:
+            mapping["_a_type"] = "旧A"
+        if skip_a_check:
+            return mapping
+        return {k: v for k, v in mapping.items() if k != "_a_type"}
+    if skip_a_check:
+        return {"_a_type": "旧A"}
     return auto_map_columns(df_b, df_a)
 
-def save_mapping(template_name, mapping):
+def save_mapping(template_name, mapping, a_type):
     os.makedirs(MAPPING_FOLDER, exist_ok=True)
     map_file = os.path.join(MAPPING_FOLDER, f"{template_name}.json")
+    full_mapping = {"_a_type": a_type}
+    full_mapping.update(mapping)
     with open(map_file, "w", encoding="utf-8") as f:
-        json.dump(mapping, f, ensure_ascii=False, indent=2)
+        json.dump(full_mapping, f, ensure_ascii=False, indent=2)
 
 # ===========================
 # 三表匹配引擎（终极容错）
@@ -217,17 +237,44 @@ st.set_page_config(page_title="三表Excel生成器", layout="wide")
 st.title("📊 一键智能vlookup")
 
 # ===========================
-# 侧边栏（永久模板模式，无临时上传）
+# 侧边栏（A表类型切换 + 数据上传）
 # ===========================
 with st.sidebar:
+    st.header("选择A表类型")
+    # a_type_val 统一用 "旧A" / "新A"，避免与 radio option 字符串混淆
+    if st.session_state.get("a_type_val") is None:
+        st.session_state.a_type_val = "旧A"
+    idx = 0 if st.session_state.a_type_val == "旧A" else 1
+    a_type_display = st.radio(
+        "A表类型",
+        ["旧A表", "新A表"],
+        index=idx,
+        key="a_type_radio",
+        horizontal=True,
+        help="切换后上传区和模板列表会自动切换"
+    )
+    # 同步到 a_type_val
+    a_type_val = "旧A" if a_type_display == "旧A表" else "新A"
+    if st.session_state.a_type_val != a_type_val:
+        st.session_state.a_type_val = a_type_val
+        # 切换A表类型时清空状态
+        for key in list(st.session_state.keys()):
+            if key not in ["is_logged_in", "a_type_val", "a_type_radio"]:
+                try:
+                    del st.session_state[key]
+                except:
+                    pass
+        st.rerun()
+
+    st.divider()
     st.header("1. 数据上传")
-    up_a = st.file_uploader("A表（总数据源）", type=['xlsx','xls'])
-    up_c = st.file_uploader("C表（只需主键列）", type=['xlsx','xls'])
+    up_a = st.file_uploader("A表（总数据源）", type=['xlsx', 'xls'])
+    up_c = st.file_uploader("C表（只需主键列）", type=['xlsx', 'xls'])
 
 # ===========================
 # 主功能区
 # ===========================
-template_list = get_b_templates()
+template_list = get_b_templates(st.session_state.get("a_type_val", "旧A"))
 
 if up_a and up_c:
     df_a = read_excel(up_a)
@@ -282,7 +329,7 @@ if up_a and up_c:
             col_save, col_gen = st.columns(2)
             with col_save:
                 if st.button("💾 保存当前映射（永久生效）"):
-                    save_mapping(first_template, current_map)
+                    save_mapping(first_template, current_map, st.session_state.get("a_type_val", "旧A"))
                     st.success("✅ 映射已永久保存！")
             with col_gen:
                 start_gen = st.button("🚀 一键生成", type="primary")
